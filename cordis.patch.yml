@@ -1,0 +1,13 @@
+# dsh-seesion-copy-enhance bundle patch
+#
+# Installing this package through the plugin manager adds it to
+# `dsh.profile.bundles`; the profile boot then merges this patch, which mounts
+# the plugin row exactly once. No profile file edits are needed.
+#
+# The `!!js` guard backs this row off when another enabled entry already mounts
+# the same package under a different id (aggregate bundles), which would
+# otherwise register the bridge routes twice and fail the whole plugin tree.
+- insert:
+    - id: seesion-copy-enhance
+      name: 'dsh-seesion-copy-enhance'
+      disabled: !!js "[...ctx.loader.entries()].some((e) => e.options.name === 'dsh-seesion-copy-enhance' && e.options.id !== 'seesion-copy-enhance' && !e.disabled)"

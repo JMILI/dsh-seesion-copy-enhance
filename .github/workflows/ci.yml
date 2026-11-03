@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Syntax check both halves
+        run: |
+          node --check lib/index.js
+          node --check lib/client.js
+
+      - name: Validate the manifest
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const problems = [];
+            if (pkg.type !== "module") problems.push("package.json must stay type=module");
+            if (!pkg.dsh?.bundle?.patch) problems.push("missing dsh.bundle.patch");
+            if (pkg.dsh?.client?.platform !== "web") problems.push("dsh.client.platform must be web");
+            if (!pkg.engines?.dsh) problems.push("missing engines.dsh compatibility range");
+            for (const file of pkg.files ?? []) {
+              if (file.includes("*")) continue;
+              if (!fs.existsSync(file)) problems.push(`files[] entry missing: ${file}`);
+            }
+            for (const file of ["locale/en.json", "locale/zh.json"]) {
+              if (!fs.existsSync(file)) problems.push(`missing ${file}`);
+            }
+            if (problems.length > 0) {
+              console.error(problems.join("\n"));
+              process.exit(1);
+            }
+            console.log("manifest ok", pkg.name, pkg.version);
+          '
+
+      - name: Pack contents (dry run)
+        run: npm pack --dry-run

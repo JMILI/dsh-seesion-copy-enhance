@@ -1,0 +1,68 @@
+{
+  "name": "dsh-seesion-copy-enhance",
+  "version": "0.2.0",
+  "description": "DeepSeek Harness web plugin: copy a whole chat message - text, images, videos and files - and paste it back into any session's composer with the media still attached.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "icon": "./icon.svg",
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json",
+    "README.md",
+    "README.zh.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "verify.ps1"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek",
+    "deepseek-harness",
+    "harness",
+    "plugin",
+    "clipboard",
+    "copy-paste",
+    "attachment",
+    "image",
+    "file",
+    "session"
+  ],
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.0 <0.3.0"
+  },
+  "author": "dsh-seesion-copy-enhance contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JMILI/dsh-seesion-copy-enhance.git"
+  },
+  "homepage": "https://github.com/JMILI/dsh-seesion-copy-enhance#readme",
+  "bugs": {
+    "url": "https://github.com/JMILI/dsh-seesion-copy-enhance/issues"
+  }
+}
