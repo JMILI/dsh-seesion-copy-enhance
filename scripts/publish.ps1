@@ -62,6 +62,7 @@ function Invoke-GitHub {
         Uri         = "https://api.github.com$Path"
         Headers     = $headers
         ContentType = 'application/json; charset=utf-8'
+        TimeoutSec  = 60
     }
     if ($null -ne $Body) {
         $parameters.Body = ([System.Text.Encoding]::UTF8.GetBytes(($Body | ConvertTo-Json -Depth 20 -Compress)))
@@ -69,7 +70,25 @@ function Invoke-GitHub {
     try {
         return Invoke-WebRequest @parameters -UseBasicParsing
     } catch {
-        if ($AllowFailure) { return $_.Exception.Response }
+        if ($AllowFailure) {
+            # Drain and close the error response: a 404 left open keeps the
+            # connection busy and makes the next request to api.github.com stall.
+            $response = $_.Exception.Response
+            if ($null -eq $response) { return [pscustomobject]@{ StatusCode = 0; Content = '' } }
+            $status = 0
+            try { $status = [int] $response.StatusCode } catch { }
+            $text = ''
+            try {
+                $stream = $response.GetResponseStream()
+                if ($null -ne $stream) {
+                    $reader = New-Object System.IO.StreamReader($stream)
+                    $text = $reader.ReadToEnd()
+                    $reader.Dispose()
+                }
+            } catch { }
+            try { $response.Close() } catch { }
+            return [pscustomobject]@{ StatusCode = $status; Content = $text }
+        }
         $detail = $_.ErrorDetails.Message
         throw "GitHub $Method $Path failed: $($_.Exception.Message) $detail"
     }
@@ -183,28 +202,50 @@ if (-not $NoGithub -and -not $env:SKIP_GITHUB) {
         Write-Warning "Token lacks the workflow scope; add these files through the web UI: $($skipped -join ', ')"
     }
 
-    $tree = Read-Json (Invoke-GitHub -Method POST -Path "/repos/$repoOwner/$repoName/git/trees" -Body @{ tree = $treeEntries })
-
     $head = Invoke-GitHub -Method GET -Path "/repos/$repoOwner/$repoName/git/ref/heads/main" -AllowFailure
     $parents = @()
     if ($head.StatusCode -eq 200) {
         $parents = @((Read-Json $head).object.sha)
     }
 
-    $commitBody = @{
-        message = "release: v$version"
-        tree    = $tree.sha
+    # Blob SHA-1s are content addressed, so an identical {path -> sha} map proves
+    # the remote tree already carries this release. Skip the commit and keep the
+    # history clean when the script is re-run.
+    $alreadyPushed = $false
+    if ($parents.Count -gt 0) {
+        $remoteTree = Read-Json (Invoke-GitHub -Method GET -Path "/repos/$repoOwner/$repoName/git/trees/main?recursive=1")
+        $remoteMap = @{}
+        foreach ($item in $remoteTree.tree) {
+            if ($item.type -eq 'blob') { $remoteMap[$item.path] = $item.sha }
+        }
+        $alreadyPushed = $remoteMap.Count -eq $treeEntries.Count
+        if ($alreadyPushed) {
+            foreach ($entry in $treeEntries) {
+                if ($remoteMap[$entry.path] -ne $entry.sha) { $alreadyPushed = $false; break }
+            }
+        }
     }
-    if ($parents.Count -gt 0) { $commitBody.parents = $parents }
-    $commit = Read-Json (Invoke-GitHub -Method POST -Path "/repos/$repoOwner/$repoName/git/commits" -Body $commitBody)
-    Write-Host "Commit $($commit.sha)"
 
-    if ($parents.Count -eq 0) {
-        Invoke-GitHub -Method POST -Path "/repos/$repoOwner/$repoName/git/refs" -Body @{ ref = 'refs/heads/main'; sha = $commit.sha } | Out-Null
+    if ($alreadyPushed) {
+        Write-Host 'Remote tree already matches; no commit needed.'
     } else {
-        Invoke-GitHub -Method PATCH -Path "/repos/$repoOwner/$repoName/git/refs/heads/main" -Body @{ sha = $commit.sha; force = $true } | Out-Null
+        $tree = Read-Json (Invoke-GitHub -Method POST -Path "/repos/$repoOwner/$repoName/git/trees" -Body @{ tree = $treeEntries })
+
+        $commitBody = @{
+            message = "release: v$version"
+            tree    = $tree.sha
+        }
+        if ($parents.Count -gt 0) { $commitBody.parents = $parents }
+        $commit = Read-Json (Invoke-GitHub -Method POST -Path "/repos/$repoOwner/$repoName/git/commits" -Body $commitBody)
+        Write-Host "Commit $($commit.sha)"
+
+        if ($parents.Count -eq 0) {
+            Invoke-GitHub -Method POST -Path "/repos/$repoOwner/$repoName/git/refs" -Body @{ ref = 'refs/heads/main'; sha = $commit.sha } | Out-Null
+        } else {
+            Invoke-GitHub -Method PATCH -Path "/repos/$repoOwner/$repoName/git/refs/heads/main" -Body @{ sha = $commit.sha; force = $true } | Out-Null
+        }
+        Write-Host 'Pushed main.'
     }
-    Write-Host 'Pushed main.'
 
     # ---------------- release ----------------
     $tag = "v$version"
